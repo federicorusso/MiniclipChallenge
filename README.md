@@ -28,4 +28,7 @@ The goals are hereafter described (number list items will be probably mentioned 
 </ul>
 
 Challenge start date: 	February 10th, 2022<br>
-Challenge end date: 	February 24th, 2022
+Challenge end date: 	February 24th, 2022<br>
+<br>
+Erlang/OTP version used: 22.3
+Rebar3 version used: 3.18.0
