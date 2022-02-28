@@ -39,7 +39,6 @@ start_link(Socket) ->
 %% @private
 %% @doc Initializes the server
 init(Socket) ->
-  %%io:format("Started child for user with name ~s~n", [Username]),
   State = #client_state{socket = Socket},
   gen_server:cast(self(), {accept}),
   {ok, State}.
@@ -120,9 +119,18 @@ handle_cast(_Request, State = #client_state{}) ->
   {stop, Reason :: term(), NewState :: #client_state{}}).
 handle_info(?SOCK(Str), CurrentState) ->
   Name = line(Str),
-  io:format("User with name ~s logged in~n", [Name]),
   %%io:format("[DEBUG] Current socket is ~s ~n", [Socket]),
-  {noreply, #client_state{name=Name, socket=CurrentState#client_state.socket}};
+  %%connection_manager:user_login(Name),
+
+  UsernameAvailable = username_available(Name),
+  if UsernameAvailable =:= true ->
+    io:format("User with name ~s logged in~n", [Name]),
+    {noreply, #client_state{name = Name, socket = CurrentState#client_state.socket}};
+    true ->
+      io:format("Username ~s already taken, please choose another one~n", [Name]),
+      send(CurrentState#client_state.socket, "The username specified is already in use; please choose a new one~n", []),
+      {noreply, #client_state{name = Name, socket = CurrentState#client_state.socket}}
+  end;
 handle_info(_Info, State = #client_state{}) ->
   {noreply, State}.
 
@@ -157,3 +165,7 @@ line(Str) ->
   %% Trim string in case a connection happens through telnet
   %% io:format("Trimming string '~s' ~n", [Str]),
   hd(string:tokens(Str, "\r\n ")).
+
+username_available(Username) ->
+  Response = gen_server:call(whereis(connection_manager), {available, Username}),
+  Response =:= available.
