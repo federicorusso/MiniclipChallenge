@@ -3,6 +3,19 @@
 
 This repository is managed so to provide version control over the files implemented for the Miniclip Backend Developer Challenge.<br>
 
+Last update: 28/02/22
+How to launch the app:
+
+<ol>
+  <li>cd [...]/fr_miniclip_challenge</li>
+  <li>Open a linux/windows shell</li>
+  <li>rebar3 shell - This command will provide information about the Port being used and the maximum concurrent connections managed</li>
+  <li>Open 1+ linux/windows shell(s) and connect to the port, e.g. telnet localhost 8888</li>
+  <li>Login via your username</li>
+</ol>
+
+**********************************************************************************************
+
 The goals are hereafter described (number list items will be probably mentioned in related commits to identify additions/updates to the code).<br>
 
 <ul>
