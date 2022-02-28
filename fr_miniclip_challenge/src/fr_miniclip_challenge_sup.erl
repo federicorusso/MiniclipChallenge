@@ -26,17 +26,25 @@ start_link() ->
 %%                  type => worker(),       % optional
 %%                  modules => modules()}   % optional
 init([]) ->
-	
-	ClientSupSpec = #{id => 'client_supervisor',
-    start => {'client_supervisor', start_link, []},
-    restart => permanent,
-    shutdown => 2000,
-    type => supervisor,
-    modules => ['client_supervisor']},
+
+    ClientSupSpec = #{id => 'client_supervisor',
+        start => {'client_supervisor', start_link, []},
+        restart => permanent,
+        shutdown => 2000,
+        type => supervisor,
+        modules => ['client_supervisor']},
+
+    ConnMgrSupSpec = #{id => 'connection_manager_supervisor',
+        start => {'connection_manager_supervisor', start_link, []},
+        restart => permanent,
+        shutdown => 2000,
+        type => supervisor,
+        modules => ['connection_manager_supervisor']},
+
     SupFlags = #{strategy => one_for_all,
-                 intensity => 0,
-                 period => 1},
-    ChildSpecs = [ClientSupSpec],
+        intensity => 0,
+        period => 1},
+    ChildSpecs = [ClientSupSpec, ConnMgrSupSpec],
     {ok, {SupFlags, ChildSpecs}}.
 
 %% internal functions
