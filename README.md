@@ -3,7 +3,7 @@
 
 This repository is managed so to provide version control over the files implemented for the Miniclip Backend Developer Challenge.<br>
 
-Last update: 28/02/22
+Last update: 01/03/22
 How to launch the app:
 
 <ol>
@@ -16,27 +16,30 @@ How to launch the app:
 
 **********************************************************************************************
 
-The goals are hereafter described (number list items will be probably mentioned in related commits to identify additions/updates to the code).<br>
-
 <ul>
 <li>Mandatory tasks:</li>
 <ol>
-  <li>The server application must accept and manage multiple TPC/IP client connections</li>
-  <li>A user must be able to create a room, as well as list, join (enter) and leave (exit) other created rooms </li>
-  <li>A user must be able to send a message to all the users in a specific room</li>
+  <li>The server application must accept and manage multiple TPC/IP client connections
+<br><u>Status</u>: Completed 28/02/22</li>
+  <li>A user must be able to create a room, as well as list, join (enter) and leave (exit) other created rooms
+<br><u>Status</u>: In progress (40%)</li>
+  <li>A user must be able to send a message to all the users in a specific room
+<br><u>Status</u>: In progress (10%)</li>
 </ol>
 <br>
 <li>Optional tasks:</li>
 <ol>
-  <li>A user should be able to send a message to a single user</li>
-  <li>A user should be able to invite other users to join him in a private room</li>
+  <li>A user should be able to send a message to a single user
+<br><u>Status</u>: In progress (10%)</li>
+  <li>A user should be able to invite other users to join them in a private room</li>
   <li>The network layer should be well separated from the chat server layer</li>
 </ol>
 <br>
 <li>Extra tasks:</li>
 <ol>
   <li>Messages and the full message history between clients and server are mediated through Google Protocol Buffer</li>
-  <li>The chat messages are stored on an AWS Redis Database</li>
+  <li>The chat messages are stored on an AWS Redis Database
+</li>
 </ol>
 </ul>
 
