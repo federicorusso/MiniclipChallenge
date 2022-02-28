@@ -11,7 +11,7 @@
 -export([start_link/0, init/1]).
 
 start_link() ->
-  supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+  supervisor:start_link({global, ?MODULE}, ?MODULE, []).
 
 init([]) ->
   AChild = #{id => 'connection_manager',
