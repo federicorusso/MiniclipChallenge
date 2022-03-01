@@ -34,17 +34,17 @@ init([]) ->
         type => supervisor,
         modules => ['client_supervisor']},
 
-    ConnMgrSupSpec = #{id => 'connection_manager_supervisor',
-        start => {'connection_manager_supervisor', start_link, []},
+    RoomSupSpec = #{id => 'room_supervisor',
+        start => {'room_supervisor', start_link, []},
         restart => permanent,
         shutdown => 2000,
         type => supervisor,
-        modules => ['connection_manager_supervisor']},
+        modules => ['room_supervisor']},
 
     SupFlags = #{strategy => one_for_all,
         intensity => 0,
         period => 1},
-    ChildSpecs = [ClientSupSpec, ConnMgrSupSpec],
+    ChildSpecs = [ClientSupSpec, RoomSupSpec],
     {ok, {SupFlags, ChildSpecs}}.
 
 %% internal functions
