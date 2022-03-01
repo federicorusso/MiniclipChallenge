@@ -47,5 +47,5 @@ How to launch the app:
 Challenge start date: 	February 10th, 2022<br>
 Challenge end date: 	February 24th, 2022<br>
 <br>
-Erlang/OTP version used: 22.3
+Erlang/OTP version used: 22.3<br>
 Rebar3 version used: 3.18.0
