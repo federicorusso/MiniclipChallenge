@@ -19,10 +19,12 @@
   code_change/3]).
 -export([introduce_self/1, receive_message/3, add_favourite_game/2, list_favourite_games/1]).
 
+-export([login/1]).
+
 -define(SERVER, ?MODULE).
 -define(SOCK(Msg), {tcp, _Port, Msg}).
 
--record(client_state, {socket = undefined, name = "", received_message_count = 0, favourite_games = []}).
+-record(client_state, {socket = undefined, next_step = undefined, name = "", received_message_count = 0, favourite_games = []}).
 
 %%%===================================================================
 %%% API
@@ -43,17 +45,20 @@ init(Socket) ->
   gen_server:cast(self(), {accept}),
   {ok, State}.
 
-introduce_self(Pid) ->
-  gen_server:call(Pid, {introduce}).
+introduce_self(Username) ->
+  gen_server:call(whereis(list_to_atom(Username)), {introduce}).
 
-receive_message(Pid, Payload, Sender) ->
-  gen_server:call(Pid, {message, Payload, Sender}).
+receive_message(Username, Payload, Sender) ->
+  gen_server:call(whereis(list_to_atom(Username)), {message, Payload, Sender}).
 
-add_favourite_game(Pid, GameName) ->
-  gen_server:cast(Pid, {add_game, GameName}).
+add_favourite_game(Username, GameName) ->
+  gen_server:cast(whereis(list_to_atom(Username)), {add_game, GameName}).
 
-list_favourite_games(Pid) ->
-  gen_server:call(Pid, {list}).
+list_favourite_games(Username) ->
+  io:format("Listing games for user ~s~n", [Username]),
+  %%gen_server:call(whereis(list_to_atom(Username)), {list}).
+  %%gen_server:cast(whereis(list_to_atom(Username)), list).
+  gen_server:cast(whereis(list_to_atom(Username)), list).
 
 
 
@@ -79,6 +84,16 @@ handle_call({list}, _From, CurrentState) ->
   SelfUsername = CurrentState#client_state.name,
   io:format("User ~s's favourite games are: ~p~n", [SelfUsername, CurrentState#client_state.favourite_games]),
   {reply, "200 OK", CurrentState};
+
+handle_call(list, _From, CurrentState = #client_state{next_step = general}) ->
+  SelfUsername = CurrentState#client_state.name,
+  io:format("User ~s's favourite games are: ~p~n", [SelfUsername, CurrentState#client_state.favourite_games]),
+  {reply, "200 OK", CurrentState};
+
+%%handle_call(game_list, _From, CurrentState = #client_state{next_step = general}) ->
+%%  io:format("Requested game list~n"),
+%%  {reply, ok, CurrentState#client_state{next_step = game_list}};
+
 handle_call(_Request, From, CurrentState) ->
   %% Note to self: consider returning error instead - TODO: log entire request for debugging/analysis
   io:format("Received unexpected request from ~s~n", From),
@@ -98,16 +113,35 @@ handle_cast({accept}, CurrentState) ->
   client_supervisor:start_socket(),
   send(AcceptSocket, "What's your username?~n", []),
   %%io:format("[DEBUG] Switching to socket ~s ~n", [AcceptSocket]),
-  {noreply, #client_state{socket=AcceptSocket}};
+  {noreply, #client_state{socket=AcceptSocket, next_step = login}};
 
-handle_cast({add_game, GameName}, CurrentState) ->
+handle_cast(list, CurrentState = #client_state{name = SelfUser, favourite_games = Games, socket = Socket}) ->
+  if Games =:= [] ->
+    send(Socket, "User ~s has no favourite games (yet)~nInteract with the app using either of the following:  ~p~n", [SelfUser, implemented_operations()]),
+    {noreply, CurrentState#client_state{next_step = general}};
+    true ->
+      send(Socket, "User ~s's favourite games are ~p~nInteract with the app using either of the following:  ~p~n", [SelfUser, Games, implemented_operations()]),
+      {noreply, CurrentState#client_state{next_step = general}}
+      end;
+
+handle_cast({add_game, GameName}, CurrentState = #client_state{socket = Socket, favourite_games = Games}) ->
   %% Favourite games can be added asynchronously
   %% TODO: check if already inserted with lists:member(GameName, FavouriteGames)
   %% Make a dedicated function since guards don't support this directly
   %% TODO: Add RequesterUsername parameter and check if different from client_state.name --> users can only add favourite games to themselves
-  io:format("Adding ~s to favourite games ~n", [GameName]),
-  Favourites = [GameName | CurrentState#client_state.favourite_games],
-  {noreply, #client_state{name = CurrentState#client_state.name, socket=CurrentState#client_state.socket, received_message_count = CurrentState#client_state.received_message_count, favourite_games = Favourites}};
+  AlreadyAdded = lists:member(GameName, Games),
+  %%io:format("[CAST] Adding ~s to favourite games ~n", [GameName]),
+  send(Socket, "Added ~s to favourites~n", [GameName]),
+  {noreply, CurrentState#client_state{favourite_games = [GameName | Games]}};
+%%  if AlreadyAdded =:= false ->
+%%    io:format("[CAST] Adding ~s to favourite games ~n", [GameName]),
+%%    send(Socket, "Added ~s to favourites~n", [GameName]),
+%%    {noreply, CurrentState#client_state{favourite_games = [GameName | Games]}};
+%%    true ->
+%%      send(Socket, "Game already added.~n~s~n", [GameName, format_impl_ops()]),
+%%      {noreply, CurrentState}
+%%  end;
+
 handle_cast(_Request, State = #client_state{}) ->
   {noreply, State}.
 
@@ -117,20 +151,50 @@ handle_cast(_Request, State = #client_state{}) ->
   {noreply, NewState :: #client_state{}} |
   {noreply, NewState :: #client_state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #client_state{}}).
-handle_info(?SOCK(Str), CurrentState) ->
-  Name = line(Str),
-  %%io:format("[DEBUG] Current socket is ~s ~n", [Socket]),
-  %%connection_manager:user_login(Name),
+handle_info(?SOCK(Str), CurrentState = #client_state{next_step = login}) ->
+  Name = string:lowercase(line(Str)),
 
   UsernameAvailable = username_available(Name),
   if UsernameAvailable =:= true ->
     io:format("User with name ~s logged in~n", [Name]),
-    {noreply, #client_state{name = Name, socket = CurrentState#client_state.socket}};
+    AvailableOps = implemented_operations(),
+    register(list_to_atom(Name), self()),
+    send(CurrentState#client_state.socket, "Logged in! Interact with the app using either of the following:  ~p~n", [AvailableOps]),
+    {noreply, #client_state{name = Name, next_step = general, socket = CurrentState#client_state.socket}};
     true ->
       io:format("Username ~s already taken, please choose another one~n", [Name]),
       send(CurrentState#client_state.socket, "The username specified is already in use; please choose a new one~n", []),
-      {noreply, #client_state{name = Name, socket = CurrentState#client_state.socket}}
+      {noreply, CurrentState}
   end;
+handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = Username, next_step = general}) ->
+  Action = string:lowercase(line(Str)),
+  case Action of
+    "game_list" ->
+      io:format("Requested game list for user ~s~n", [Username]),
+      list_favourite_games(Username),
+      {noreply, CurrentState#client_state{next_step = general}};
+    "game_add" ->
+      io:format("Requested game add~n"),
+      send(Socket,"Enter game name to add to favourites: ~n", []),
+      {noreply, CurrentState#client_state{next_step = game_add}};
+    "room_create" ->
+      io:format("Requested room create~n"),
+      {noreply, CurrentState};
+    "room_list" ->
+      io:format("Requested room list~n"),
+      {noreply, CurrentState};
+    _ ->
+      io:format("Action ~s requested is not currently managed~n", [Action]),
+      send(Socket, "Action ~s requested is not currently managed~n", [Action]),
+      {noreply, CurrentState}
+  end;
+
+handle_info(?SOCK(Str), CurrentState = #client_state{socket = _Socket, name = Username, next_step = game_add}) ->
+  GameName = string:lowercase(line(Str)),
+  io:format("Adding game ~s to favourites~n", [GameName]),
+  add_favourite_game(Username, GameName),
+  {noreply, CurrentState#client_state{next_step = general}};
+
 handle_info(_Info, State = #client_state{}) ->
   {noreply, State}.
 
@@ -167,5 +231,11 @@ line(Str) ->
   hd(string:tokens(Str, "\r\n ")).
 
 username_available(Username) ->
-  Response = gen_server:call(whereis(connection_manager), {available, Username}),
-  Response =:= available.
+  whereis(list_to_atom(Username)) =:= undefined.
+
+implemented_operations() ->
+  ["game_list", "game_add", "room_list", "room_add"].
+
+format_impl_ops() ->
+  Res = io:format("Interact with the app using either of the following:  ~p~n", [implemented_operations()]),
+  Res.
