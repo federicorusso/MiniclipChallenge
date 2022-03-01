@@ -19,8 +19,6 @@
   code_change/3]).
 -export([introduce_self/1, receive_message/3, add_favourite_game/2, list_favourite_games/1]).
 
--export([login/1]).
-
 -define(SERVER, ?MODULE).
 -define(SOCK(Msg), {tcp, _Port, Msg}).
 
@@ -46,19 +44,16 @@ init(Socket) ->
   {ok, State}.
 
 introduce_self(Username) ->
-  gen_server:call(whereis(list_to_atom(Username)), {introduce}).
+  gen_server:call(whereis(list_to_atom("user_" ++ Username)), {introduce}).
 
 receive_message(Username, Payload, Sender) ->
-  gen_server:call(whereis(list_to_atom(Username)), {message, Payload, Sender}).
+  gen_server:cast(whereis(list_to_atom("user_" ++ Username)), {message, Payload, Sender}).
 
 add_favourite_game(Username, GameName) ->
-  gen_server:cast(whereis(list_to_atom(Username)), {add_game, GameName}).
+  gen_server:cast(whereis(list_to_atom("user_" ++ Username)), {add_game, GameName}).
 
 list_favourite_games(Username) ->
-  io:format("Listing games for user ~s~n", [Username]),
-  %%gen_server:call(whereis(list_to_atom(Username)), {list}).
-  %%gen_server:cast(whereis(list_to_atom(Username)), list).
-  gen_server:cast(whereis(list_to_atom(Username)), list).
+  io:format("Listing games for user ~s~n", [Username]),gen_server:cast(whereis(list_to_atom("user_" ++ Username)), list).
 
 
 
@@ -76,10 +71,10 @@ list_favourite_games(Username) ->
 handle_call({introduce}, _From, CurrentState) ->
   io:format("Hi, I'm ~s! ~n", [CurrentState#client_state.name]),
   {reply, "200 OK", CurrentState};
-handle_call({message, Payload, SenderUsername}, _From, CurrentState) ->
-  io:format("Received message from user ~s with payload: ~s ~n", [SenderUsername, Payload]),
-  Counter = CurrentState#client_state.received_message_count + 1,
-  {reply, "204 No Content", #client_state{name = CurrentState#client_state.name, socket=CurrentState#client_state.socket, received_message_count = Counter, favourite_games = CurrentState#client_state.favourite_games}};
+%%handle_call({message, Payload, SenderUsername}, _From, CurrentState) ->
+%%  io:format("Received message from user ~s with payload: ~s ~n", [SenderUsername, Payload]),
+%%  Counter = CurrentState#client_state.received_message_count + 1,
+%%  {reply, "204 No Content", #client_state{name = CurrentState#client_state.name, socket=CurrentState#client_state.socket, received_message_count = Counter, favourite_games = CurrentState#client_state.favourite_games}};
 handle_call({list}, _From, CurrentState) ->
   SelfUsername = CurrentState#client_state.name,
   io:format("User ~s's favourite games are: ~p~n", [SelfUsername, CurrentState#client_state.favourite_games]),
@@ -142,6 +137,10 @@ handle_cast({add_game, GameName}, CurrentState = #client_state{socket = Socket, 
 %%      {noreply, CurrentState}
 %%  end;
 
+handle_cast({message, Payload, SenderUsername}, CurrentState = #client_state{socket = Socket, received_message_count = Counter}) ->
+  send(Socket, "Received message from user ~s with payload: ~s // Total messages received: ~s~n", [SenderUsername, Payload, Counter]),
+  {noreply, CurrentState#client_state{received_message_count = Counter + 1}};
+
 handle_cast(_Request, State = #client_state{}) ->
   {noreply, State}.
 
@@ -158,7 +157,7 @@ handle_info(?SOCK(Str), CurrentState = #client_state{next_step = login}) ->
   if UsernameAvailable =:= true ->
     io:format("User with name ~s logged in~n", [Name]),
     AvailableOps = implemented_operations(),
-    register(list_to_atom(Name), self()),
+    register(list_to_atom("user_" ++ Name), self()),
     send(CurrentState#client_state.socket, "Logged in! Interact with the app using either of the following:  ~p~n", [AvailableOps]),
     {noreply, #client_state{name = Name, next_step = general, socket = CurrentState#client_state.socket}};
     true ->
@@ -231,7 +230,7 @@ line(Str) ->
   hd(string:tokens(Str, "\r\n ")).
 
 username_available(Username) ->
-  whereis(list_to_atom(Username)) =:= undefined.
+  whereis(list_to_atom("user_" ++ Username)) =:= undefined.
 
 implemented_operations() ->
   ["game_list", "game_add", "room_list", "room_add"].
