@@ -3,7 +3,7 @@
 
 This repository is managed so to provide version control over the files implemented for the Miniclip Backend Developer Challenge.<br>
 
-Last update: 01/03/22
+Last update: 02/03/22
 How to launch the app:
 
 <ol>
@@ -11,7 +11,8 @@ How to launch the app:
   <li>Open a linux/windows shell</li>
   <li>rebar3 shell - This command will provide information about the Port being used and the maximum concurrent connections managed</li>
   <li>Open 1+ linux/windows shell(s) and connect to the port, e.g. telnet localhost 8888</li>
-  <li>Login via your username</li>
+  <li>Login via your username - this will identify your session</li>
+  <li>The application will interact with you through the terminal, providing information on which operations can be performed</li>
 </ol>
 
 **********************************************************************************************
@@ -22,15 +23,15 @@ How to launch the app:
   <li>The server application must accept and manage multiple TPC/IP client connections
 <br><u>Status</u>: Completed 28/02/22</li>
   <li>A user must be able to create a room, as well as list, join (enter) and leave (exit) other created rooms
-<br><u>Status</u>: In progress (40%)</li>
+<br><u>Status</u>: In progress (70%)</li>
   <li>A user must be able to send a message to all the users in a specific room
-<br><u>Status</u>: In progress (10%)</li>
+<br><u>Status</u>: In progress (30%)</li>
 </ol>
 <br>
 <li>Optional tasks:</li>
 <ol>
   <li>A user should be able to send a message to a single user
-<br><u>Status</u>: In progress (10%)</li>
+<br><u>Status</u>: In progress (30%)</li>
   <li>A user should be able to invite other users to join them in a private room</li>
   <li>The network layer should be well separated from the chat server layer</li>
 </ol>
