@@ -22,7 +22,7 @@
 -define(SERVER, ?MODULE).
 -define(SOCK(Msg), {tcp, _Port, Msg}).
 
--record(client_state, {socket = undefined, next_step = undefined, name = "", received_message_count = 0, favourite_games = []}).
+-record(client_state, {socket = undefined, next_step = undefined, name = "", current_recipient = "", received_message_count = 0, favourite_games = []}).
 
 %%%===================================================================
 %%% API
@@ -53,7 +53,7 @@ add_favourite_game(Username, GameName) ->
   gen_server:cast(whereis(list_to_atom("user_" ++ Username)), {add_game, GameName}).
 
 list_favourite_games(Username) ->
-  io:format("Listing games for user ~s~n", [Username]),gen_server:cast(whereis(list_to_atom("user_" ++ Username)), list).
+  io:format("Listing games for user ~s\r~n", [Username]),gen_server:cast(whereis(list_to_atom("user_" ++ Username)), list).
 
 
 
@@ -106,16 +106,16 @@ handle_cast({accept}, CurrentState) ->
   %%io:format("[DEBUG] Current socket is ~s ~n", [ListenSocket]),
   {ok, AcceptSocket} = gen_tcp:accept(ListenSocket),
   client_supervisor:start_socket(),
-  send(AcceptSocket, "What's your username?~n", []),
+  send(AcceptSocket, "What's your username?", []),
   %%io:format("[DEBUG] Switching to socket ~s ~n", [AcceptSocket]),
   {noreply, #client_state{socket=AcceptSocket, next_step = login}};
 
 handle_cast(list, CurrentState = #client_state{name = SelfUser, favourite_games = Games, socket = Socket}) ->
   if Games =:= [] ->
-    send(Socket, "User ~s has no favourite games (yet)~nInteract with the app using either of the following:  ~p~n", [SelfUser, implemented_operations()]),
+    send(Socket, "User ~s has no favourite games (yet)~nInteract with the app using either of the following:  ~p", [SelfUser, implemented_operations()]),
     {noreply, CurrentState#client_state{next_step = general}};
     true ->
-      send(Socket, "User ~s's favourite games are ~p~nInteract with the app using either of the following:  ~p~n", [SelfUser, Games, implemented_operations()]),
+      send(Socket, "User ~s's favourite games are ~p~nInteract with the app using either of the following:  ~p", [SelfUser, Games, implemented_operations()]),
       {noreply, CurrentState#client_state{next_step = general}}
       end;
 
@@ -124,21 +124,21 @@ handle_cast({add_game, GameName}, CurrentState = #client_state{socket = Socket, 
   %% TODO: check if already inserted with lists:member(GameName, FavouriteGames)
   %% Make a dedicated function since guards don't support this directly
   %% TODO: Add RequesterUsername parameter and check if different from client_state.name --> users can only add favourite games to themselves
-  AlreadyAdded = lists:member(GameName, Games),
+  _AlreadyAdded = lists:member(GameName, Games),
   %%io:format("[CAST] Adding ~s to favourite games ~n", [GameName]),
-  send(Socket, "Added ~s to favourites~n", [GameName]),
+  send(Socket, "Added ~s to favourites", [GameName]),
   {noreply, CurrentState#client_state{favourite_games = [GameName | Games]}};
 %%  if AlreadyAdded =:= false ->
 %%    io:format("[CAST] Adding ~s to favourite games ~n", [GameName]),
-%%    send(Socket, "Added ~s to favourites~n", [GameName]),
+%%    send(Socket, "Added ~s to favourites", [GameName]),
 %%    {noreply, CurrentState#client_state{favourite_games = [GameName | Games]}};
 %%    true ->
-%%      send(Socket, "Game already added.~n~s~n", [GameName, format_impl_ops()]),
+%%      send(Socket, "Game already added.~n~s", [GameName, format_impl_ops()]),
 %%      {noreply, CurrentState}
 %%  end;
 
 handle_cast({message, Payload, SenderUsername}, CurrentState = #client_state{socket = Socket, received_message_count = Counter}) ->
-  send(Socket, "Received message from user ~s with payload: ~s // Total messages received: ~s~n", [SenderUsername, Payload, Counter]),
+  send(Socket, "Received message from user '~s' with payload: '~s' Total messages received: ~p", [SenderUsername, Payload, Counter + 1]),
   {noreply, CurrentState#client_state{received_message_count = Counter + 1}};
 
 handle_cast(_Request, State = #client_state{}) ->
@@ -158,35 +158,66 @@ handle_info(?SOCK(Str), CurrentState = #client_state{next_step = login}) ->
     io:format("User with name ~s logged in~n", [Name]),
     AvailableOps = implemented_operations(),
     register(list_to_atom("user_" ++ Name), self()),
-    send(CurrentState#client_state.socket, "Logged in! Interact with the app using either of the following:  ~p~n", [AvailableOps]),
+    send(CurrentState#client_state.socket, "Logged in! Interact with the app using either of the following:  ~p", [AvailableOps]),
     {noreply, #client_state{name = Name, next_step = general, socket = CurrentState#client_state.socket}};
     true ->
       io:format("Username ~s already taken, please choose another one~n", [Name]),
-      send(CurrentState#client_state.socket, "The username specified is already in use; please choose a new one~n", []),
+      send(CurrentState#client_state.socket, "The username specified is already in use; please choose a new one", []),
       {noreply, CurrentState}
   end;
 handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = Username, next_step = general}) ->
   Action = string:lowercase(line(Str)),
   case Action of
-    "game_list" ->
-      io:format("Requested game list for user ~s~n", [Username]),
-      list_favourite_games(Username),
-      {noreply, CurrentState#client_state{next_step = general}};
-    "game_add" ->
-      io:format("Requested game add~n"),
-      send(Socket,"Enter game name to add to favourites: ~n", []),
-      {noreply, CurrentState#client_state{next_step = game_add}};
     "room_create" ->
       io:format("Requested room create~n"),
       {noreply, CurrentState};
     "room_list" ->
       io:format("Requested room list~n"),
       {noreply, CurrentState};
+    "room_enter" ->
+      io:format("Requested room join~n"),
+      {noreply, CurrentState};
+    "room_leave" ->
+      io:format("Requested room exit~n"),
+      {noreply, CurrentState};
+    "message_user" ->
+      io:format("Requested message user~n"),
+      send(Socket,"Enter recipient username: ", []),
+      {noreply, CurrentState#client_state{next_step = message_user}};
+    "game_list" ->
+      io:format("Requested game list for user ~s~n", [Username]),
+      list_favourite_games(Username),
+      {noreply, CurrentState#client_state{next_step = general}};
+    "game_add" ->
+      io:format("Requested game add~n"),
+      send(Socket,"Enter game name to add to favourites: ", []),
+      {noreply, CurrentState#client_state{next_step = game_add}};
     _ ->
       io:format("Action ~s requested is not currently managed~n", [Action]),
-      send(Socket, "Action ~s requested is not currently managed~n", [Action]),
+      send(Socket, "Action ~s requested is not currently managed\r~nInteract with the app using either of the following: ~p", [Action, implemented_operations()]),
       {noreply, CurrentState}
   end;
+
+handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = Username, next_step = message_user}) ->
+  Recipient = string:lowercase(line(Str)),
+  UserExists = (whereis(list_to_atom("user_" ++ Recipient)) =/= undefined),
+  if UserExists =:= true ->
+    send(Socket, "Enter the message to send to user ~s: ", [Recipient]),
+    {noreply, CurrentState#client_state{next_step = message_payload, current_recipient = Recipient}};
+    true ->
+      send(Socket, "User with name ~s is currently offline and cannot receive messages\r~nInteract with the app using either of the following: ~p", [Recipient, implemented_operations()]),
+      {noreply, CurrentState#client_state{next_step = general}}
+    end;
+
+handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = Username, current_recipient = Recipient, next_step = message_payload}) ->
+  %% TODO: only line(Str) splits on \n and only returns first token.
+  %% Note to self: consider using "re"
+  %%Payload = line(Str),
+  Payload = Str,
+  io:format("Sending message '~s' to recipient ~s from sender ~s (untrimmed: '~s')~n", [Payload, Recipient, Username, Str]),
+  send(Socket, "Message sent!\r~nInteract with the app using either of the following: ~p", [implemented_operations()]),
+  receive_message(Recipient, Payload, Username),
+  {noreply, CurrentState#client_state{next_step = general, current_recipient = ""}};
 
 handle_info(?SOCK(Str), CurrentState = #client_state{socket = _Socket, name = Username, next_step = game_add}) ->
   GameName = string:lowercase(line(Str)),
@@ -220,7 +251,7 @@ code_change(_OldVsn, State = #client_state{}, _Extra) ->
 %%%===================================================================
 
 send(Socket, Str, Args) ->
-  ok = gen_tcp:send(Socket, io_lib:format(Str++"~n", Args)),
+  ok = gen_tcp:send(Socket, io_lib:format(Str++"\r~n", Args)),
   ok = inet:setopts(Socket, [{active, once}]),
   ok.
 
@@ -233,8 +264,8 @@ username_available(Username) ->
   whereis(list_to_atom("user_" ++ Username)) =:= undefined.
 
 implemented_operations() ->
-  ["game_list", "game_add", "room_list", "room_add"].
+  ["room_list", "room_add", "room_enter", "room_leave", "message_user", "game_list", "game_add"].
 
 format_impl_ops() ->
-  Res = io:format("Interact with the app using either of the following:  ~p~n", [implemented_operations()]),
+  Res = io:format("Interact with the app using either of the following:  ~p\r~n", [implemented_operations()]),
   Res.
