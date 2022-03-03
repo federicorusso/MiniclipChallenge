@@ -13,7 +13,7 @@
   code_change/3]).
 
 -export([room_exists/1, enter_room/2, leave_room/2, room_broadcast/3]).
--export([list_users/1]).
+-export([list_users/2]).
 
 -define(SERVER, ?MODULE).
 
@@ -24,28 +24,49 @@
 %%%===================================================================
 
 start_link(RoomName) ->
-  io:format("[START] Starting child for room with name ~s~n", [RoomName]),
+  io:format("Starting child for room with name ~s~n", [RoomName]),
   gen_server:start_link({local, list_to_atom("room_" ++ string:lowercase(RoomName))}, ?MODULE, [RoomName], []).
 
 init([RoomName]) ->
-  io:format("[INIT] Starting child for room with name ~s~n", [RoomName]),
+  io:format("Starting child for room with name ~s~n", [RoomName]),
   {ok, #room_state{name = RoomName}}.
 
 %% For testing only
-list_users(RoomName) ->
-  gen_server:cast(whereis(list_to_atom("room_" ++ string:lowercase(RoomName))), {users}).
+list_users(RoomName, Requester) ->
+  RoomExists = room_exists(RoomName),
+  if RoomExists =:= true ->
+    gen_server:cast(whereis(list_to_atom("room_" ++ string:lowercase(RoomName))), {users});
+    true ->
+      client:receive_message_internal(Requester, "Room does not exist")
+  end.
 
-enter_room(RoomName, Username) ->
-  io:format("Enter request from user ~s~n", [Username]),
-  gen_server:cast(whereis(list_to_atom("room_"++RoomName)), {enter, Username}).
+enter_room(RoomName, Requester) ->
+  io:format("Enter request from user ~s~n", [Requester]),
+  RoomExists = room_exists(RoomName),
+  if RoomExists =:= true ->
+    gen_server:cast(whereis(list_to_atom("room_"++RoomName)), {enter, Requester});
+    true ->
+      client:receive_message_internal(Requester, "Room does not exist")
+  end.
 
-leave_room(RoomName, Username) ->
-  io:format("Leave request from user ~s~n", [Username]),
-  gen_server:cast(whereis(list_to_atom("room_" ++ string:lowercase(RoomName))), {leave, Username}).
+leave_room(RoomName, Requester) ->
+  io:format("Leave request from user ~s~n", [Requester]),
+  RoomExists = room_exists(RoomName),
+  if RoomExists =:= true ->
+    gen_server:cast(whereis(list_to_atom("room_" ++ string:lowercase(RoomName))), {leave, Requester});
+    true ->
+      client:receive_message_internal(Requester, "Room does not exist")
+  end.
 
-room_broadcast(RoomName, Username, Payload) ->
-  io:format("Broadcast request from user ~s to room ~s~n", [Username, string:lowercase(RoomName)]),
-  gen_server:cast(whereis(list_to_atom("room_" ++ string:lowercase(RoomName))), {broadcast, Payload, Username}).
+
+room_broadcast(RoomName, Requester, Payload) ->
+  io:format("Broadcast request from user ~s to room ~s~n", [Requester, string:lowercase(RoomName)]),
+  RoomExists = room_exists(RoomName),
+  if RoomExists =:= true ->
+    gen_server:cast(whereis(list_to_atom("room_" ++ string:lowercase(RoomName))), {broadcast, Payload, Requester});
+    true ->
+      client:receive_message_internal(Requester, "Room does not exist")
+  end.
 
 handle_call(_Request, _From, State = #room_state{}) ->
   {reply, ok, State}.
@@ -106,4 +127,4 @@ code_change(_OldVsn, State = #room_state{}, _Extra) ->
 %%%===================================================================
 
 room_exists(RoomName) ->
-  whereis(list_to_atom("room_" ++ RoomName)) =:= undefined.
+  whereis(list_to_atom("room_" ++ RoomName)) =/= undefined.
