@@ -17,12 +17,15 @@
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
   code_change/3]).
--export([introduce_self/1, receive_message/3, add_favourite_game/2, list_favourite_games/1]).
+
+%% Client APIs
+-export([receive_message/3, receive_message_internal/2]).
+
 
 -define(SERVER, ?MODULE).
 -define(SOCK(Msg), {tcp, _Port, Msg}).
 
--record(client_state, {socket = undefined, next_step = undefined, name = "", current_recipient = "", received_message_count = 0, favourite_games = []}).
+-record(client_state, {socket = undefined, next_step = undefined, name = "", current_recipient = "", broadcast_room_name = "", received_message_count = 0, favourite_games = []}).
 
 %%%===================================================================
 %%% API
@@ -43,19 +46,37 @@ init(Socket) ->
   gen_server:cast(self(), {accept}),
   {ok, State}.
 
-introduce_self(Username) ->
-  gen_server:call(whereis(list_to_atom("user_" ++ Username)), {introduce}).
-
+%% Client APIs
 receive_message(Username, Payload, Sender) ->
-  gen_server:cast(whereis(list_to_atom("user_" ++ Username)), {message, Payload, Sender}).
+  gen_server:cast(whereis(list_to_atom("user_" ++ string:lowercase(Username))), {message, Payload, Sender}).
+
+receive_message_internal(Username, Payload) ->
+  gen_server:cast(whereis(list_to_atom("user_" ++ string:lowercase(Username))), {message_internal, Payload}).
 
 add_favourite_game(Username, GameName) ->
-  gen_server:cast(whereis(list_to_atom("user_" ++ Username)), {add_game, GameName}).
+  gen_server:cast(whereis(list_to_atom("user_" ++ string:lowercase(Username))), {add_game, GameName}).
 
-list_favourite_games(Username) ->
-  io:format("Listing games for user ~s\r~n", [Username]),gen_server:cast(whereis(list_to_atom("user_" ++ Username)), list).
+%%introduce_self(Username) ->
+%%  gen_server:call(whereis(list_to_atom("user_" ++ string:lowercase(Username))), {introduce}).
+%%
+%%list_favourite_games(Username) ->
+%%  io:format("Listing games for user ~s\r~n", [Username]),gen_server:cast(whereis(list_to_atom("user_" ++ Username)), list).
 
+%% Room APIs
+list_rooms(Username) ->
+  room_supervisor:list_rooms(Username).
 
+create_room(RoomName, Username) ->
+  room_supervisor:create_room(RoomName, Username).
+
+enter_room(RoomName, Username) ->
+  room:enter_room(RoomName, Username).
+
+leave_room(RoomName, Username) ->
+  room:leave_room(RoomName, Username).
+
+broadcast_to_users_in_room(RoomName, Username, Payload) ->
+  room:room_broadcast(RoomName, Username, Payload).
 
 %% @private
 %% @doc Handling call messages
@@ -112,10 +133,10 @@ handle_cast({accept}, CurrentState) ->
 
 handle_cast(list, CurrentState = #client_state{name = SelfUser, favourite_games = Games, socket = Socket}) ->
   if Games =:= [] ->
-    send(Socket, "User ~s has no favourite games (yet)~nInteract with the app using either of the following:  ~p", [SelfUser, implemented_operations()]),
+    send(Socket, "User ~s has no favourite games (yet)~nInteract with the app using either of the following:  ~s", [SelfUser, implemented_operations()]),
     {noreply, CurrentState#client_state{next_step = general}};
     true ->
-      send(Socket, "User ~s's favourite games are ~p~nInteract with the app using either of the following:  ~p", [SelfUser, Games, implemented_operations()]),
+      send(Socket, "User ~s's favourite games are ~p~nInteract with the app using either of the following:  ~s", [SelfUser, Games, implemented_operations()]),
       {noreply, CurrentState#client_state{next_step = general}}
       end;
 
@@ -141,6 +162,10 @@ handle_cast({message, Payload, SenderUsername}, CurrentState = #client_state{soc
   send(Socket, "Received message from user '~s' with payload: '~s' Total messages received: ~p", [SenderUsername, Payload, Counter + 1]),
   {noreply, CurrentState#client_state{received_message_count = Counter + 1}};
 
+handle_cast({message_internal, Payload}, CurrentState = #client_state{socket = Socket}) ->
+  send(Socket, "~s", [Payload]),
+  {noreply, CurrentState};
+
 handle_cast(_Request, State = #client_state{}) ->
   {noreply, State}.
 
@@ -156,9 +181,8 @@ handle_info(?SOCK(Str), CurrentState = #client_state{next_step = login}) ->
   UsernameAvailable = username_available(Name),
   if UsernameAvailable =:= true ->
     io:format("User with name ~s logged in~n", [Name]),
-    AvailableOps = implemented_operations(),
     register(list_to_atom("user_" ++ Name), self()),
-    send(CurrentState#client_state.socket, "Logged in! Interact with the app using either of the following:  ~p", [AvailableOps]),
+    send(CurrentState#client_state.socket, "Logged in! Interact with the app using either of the following:  ~s", [implemented_operations()]),
     {noreply, #client_state{name = Name, next_step = general, socket = CurrentState#client_state.socket}};
     true ->
       io:format("Username ~s already taken, please choose another one~n", [Name]),
@@ -168,37 +192,46 @@ handle_info(?SOCK(Str), CurrentState = #client_state{next_step = login}) ->
 handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = Username, next_step = general}) ->
   Action = string:lowercase(line(Str)),
   case Action of
-    "room_create" ->
-      io:format("Requested room create~n"),
-      {noreply, CurrentState};
     "room_list" ->
       io:format("Requested room list~n"),
+      list_rooms(Username),
       {noreply, CurrentState};
+    "room_create" ->
+      io:format("Requested room create~n"),
+      send(Socket,"Enter name for the room to create: ", []),
+      {noreply, CurrentState#client_state{next_step = create_room}};
     "room_enter" ->
       io:format("Requested room join~n"),
-      {noreply, CurrentState};
+      send(Socket,"Enter name for the room to enter: ", []),
+      {noreply, CurrentState#client_state{next_step = enter_room}};
     "room_leave" ->
       io:format("Requested room exit~n"),
-      {noreply, CurrentState};
+      send(Socket,"Enter name for the room to leave: ", []),
+      {noreply, CurrentState#client_state{next_step = leave_room}};
+    "room_broadcast" ->
+      io:format("Requested broadcast to room users~n"),
+      send(Socket,"Enter room name for message broadcast: ", []),
+      {noreply, CurrentState#client_state{next_step = broadcast_room}};
     "message_user" ->
       io:format("Requested message user~n"),
       send(Socket,"Enter recipient username: ", []),
       {noreply, CurrentState#client_state{next_step = message_user}};
-    "game_list" ->
-      io:format("Requested game list for user ~s~n", [Username]),
-      list_favourite_games(Username),
-      {noreply, CurrentState#client_state{next_step = general}};
-    "game_add" ->
-      io:format("Requested game add~n"),
-      send(Socket,"Enter game name to add to favourites: ", []),
-      {noreply, CurrentState#client_state{next_step = game_add}};
+
+%%    "game_list" ->
+%%      io:format("Requested game list for user ~s~n", [Username]),
+%%      list_favourite_games(Username),
+%%      {noreply, CurrentState#client_state{next_step = general}};
+%%    "game_add" ->
+%%      io:format("Requested game add~n"),
+%%      send(Socket,"Enter game name to add to favourites: ", []),
+%%      {noreply, CurrentState#client_state{next_step = game_add}};
     _ ->
       io:format("Action ~s requested is not currently managed~n", [Action]),
-      send(Socket, "Action ~s requested is not currently managed\r~nInteract with the app using either of the following: ~p", [Action, implemented_operations()]),
+      send(Socket, "Action ~s requested is not currently managed\r~nInteract with the app using either of the following: ~s", [Action, implemented_operations()]),
       {noreply, CurrentState}
   end;
 
-handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = Username, next_step = message_user}) ->
+handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = _Username, next_step = message_user}) ->
   Recipient = string:lowercase(line(Str)),
   UserExists = (whereis(list_to_atom("user_" ++ Recipient)) =/= undefined),
   if UserExists =:= true ->
@@ -215,7 +248,7 @@ handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = Use
   %%Payload = line(Str),
   Payload = Str,
   io:format("Sending message '~s' to recipient ~s from sender ~s (untrimmed: '~s')~n", [Payload, Recipient, Username, Str]),
-  send(Socket, "Message sent!\r~nInteract with the app using either of the following: ~p", [implemented_operations()]),
+  send(Socket, "Message sent!\r~nInteract with the app using either of the following: ~s", [implemented_operations()]),
   receive_message(Recipient, Payload, Username),
   {noreply, CurrentState#client_state{next_step = general, current_recipient = ""}};
 
@@ -224,6 +257,36 @@ handle_info(?SOCK(Str), CurrentState = #client_state{socket = _Socket, name = Us
   io:format("Adding game ~s to favourites~n", [GameName]),
   add_favourite_game(Username, GameName),
   {noreply, CurrentState#client_state{next_step = general}};
+
+handle_info(?SOCK(Str), CurrentState = #client_state{socket = _Socket, name = Username, next_step = create_room}) ->
+  RoomName = string:lowercase(line(Str)),
+  io:format("Requesting to create room ~s... ~n", [RoomName]),
+  create_room(RoomName, Username),
+  {noreply, CurrentState#client_state{next_step = general}};
+
+handle_info(?SOCK(Str), CurrentState = #client_state{socket = _Socket, name = Username, next_step = enter_room}) ->
+  RoomName = string:lowercase(line(Str)),
+  io:format("Requesting to enter room ~s... ~n", [RoomName]),
+  enter_room(RoomName, Username),
+  {noreply, CurrentState#client_state{next_step = general}};
+
+handle_info(?SOCK(Str), CurrentState = #client_state{socket = _Socket, name = Username, next_step = leave_room}) ->
+  RoomName = string:lowercase(line(Str)),
+  io:format("Requesting to leave room ~s... ~n", [RoomName]),
+  leave_room(RoomName, Username),
+  {noreply, CurrentState#client_state{next_step = general}};
+
+handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, next_step = broadcast_room}) ->
+  RoomName = string:lowercase(line(Str)),
+  io:format("Requesting payload to broadcast to users in room '~s'... ~n", [RoomName]),
+  send(Socket,"Enter message for broadcast to users in room ~s: ", [RoomName]),
+  {noreply, CurrentState#client_state{next_step = broadcast_payload, broadcast_room_name = RoomName}};
+
+handle_info(?SOCK(Str), CurrentState = #client_state{socket = _Socket, name = Username, broadcast_room_name = RoomName, next_step = broadcast_payload}) ->
+  Payload = Str,
+  io:format("Broadcasting '~s' to all users in room '~s'... ~n", [Payload, RoomName]),
+  broadcast_to_users_in_room(RoomName, Username, Payload),
+  {noreply, CurrentState#client_state{next_step = general, broadcast_room_name = ""}};
 
 handle_info(_Info, State = #client_state{}) ->
   {noreply, State}.
@@ -258,14 +321,19 @@ send(Socket, Str, Args) ->
 line(Str) ->
   %% Trim string in case a connection happens through telnet
   %% io:format("Trimming string '~s' ~n", [Str]),
-  hd(string:tokens(Str, "\r\n ")).
+  Len = string:length(Str),
+  if Len > 0 ->
+    hd(string:tokens(Str, "\r\n "));
+    true ->
+      ""
+  end.
 
 username_available(Username) ->
   whereis(list_to_atom("user_" ++ Username)) =:= undefined.
 
 implemented_operations() ->
-  ["room_list", "room_add", "room_enter", "room_leave", "message_user", "game_list", "game_add"].
-
-format_impl_ops() ->
-  Res = io:format("Interact with the app using either of the following:  ~p\r~n", [implemented_operations()]),
-  Res.
+  %%Ops = ["room_list", "room_create", "room_enter", "room_leave", "room_broadcast", "message_user", "game_list", "game_add"],
+  Ops = ["room_list", "room_create", "room_enter", "room_leave", "room_broadcast", "message_user"],
+  Res = lists:foldl(fun(X, Acc) -> X ++ ", " ++ Acc end, [], lists:reverse(Ops)),
+  Len = string:length(Res),
+  string:slice(Res, 0, Len-2).

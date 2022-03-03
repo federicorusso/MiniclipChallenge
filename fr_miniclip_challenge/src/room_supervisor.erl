@@ -59,6 +59,12 @@ init([]) ->
     type => worker,
     modules => ['room']},
 
+  %% If there are rooms persisted, start them on app launch
+  %% TODO: understand why this is not working
+  %% setup_start_children(),
+
+  cleanup_on_startup(),
+
   {ok, {SupFlags, [AChild]}}.
 
 %%%===================================================================
@@ -74,13 +80,12 @@ create_room(RoomName, RequesterUsername) ->
       shutdown => 2000,
       type => worker,
       modules => ['room']},
-    %% TODO - Check child creation
     supervisor:start_child(?MODULE, [RoomName]),
     update_persistence_layer(RoomName),
-    client:receive_message(RequesterUsername, "Room created", ?MODULE);
+    client:receive_message_internal(RequesterUsername, "Room created");
     true ->
-      io:format("Room with name ~s already exists - consider joining it!~n", [RoomName]),
-      client:receive_message(RequesterUsername, "Room already exists - consider joining it!~n", ?MODULE)
+      io:format("Room with name ~s already exists - consider joining it!", [RoomName]),
+      client:receive_message_internal(RequesterUsername, "Room already exists - consider joining it!")
   end.
 
 list_rooms(RequesterUsername) ->
@@ -88,9 +93,8 @@ list_rooms(RequesterUsername) ->
   FileName = CWD ++ ?PERSISTENCE_FILE,
   {ok, Content} = file:read_file(FileName),
   Rooms = string:tokens(binary_to_list(Content), ","),
-  %%io:format("Rooms existing: ~p~n", [Rooms]),
-  client:receive_message(RequesterUsername, Rooms, ?MODULE),
-  Rooms.
+  %%io:format("Existing rooms: " ++ string_list_to_string_with_commas(Rooms) ++ "~n~n"),
+  client:receive_message_internal(RequesterUsername, "Existing rooms: " ++ string_list_to_string_with_commas(Rooms)).
 
 %% Do not export
 update_persistence_layer(RoomName) ->
@@ -113,3 +117,27 @@ update_persistence_layer(RoomName) ->
 
 room_exists(RoomName) ->
   whereis(list_to_atom("room_" ++ RoomName)) =/= undefined.
+
+string_list_to_string_with_commas(List) ->
+  if List =:= [] ->
+    "[]";
+    true ->
+      Res = lists:foldl(fun(X, Acc) -> X ++ ", " ++ Acc end, [], lists:reverse(List)),
+      Len = string:length(Res),
+      string:slice(Res, 0, Len-2)
+  end.
+
+setup_start_children() ->
+  {ok, CWD} = file:get_cwd(),
+  FileName = CWD ++ ?PERSISTENCE_FILE,
+  {ok, Content} = file:read_file(FileName),
+  Rooms = string:tokens(binary_to_list(Content), ","),
+  io:format("[INIT] Persisted rooms: ~p~n", [Rooms]),
+  [ io:format("[INIT] Persisted rooms: ~p~n", [R]) || R <- Rooms],
+  [ supervisor:start_child(?MODULE, [R]) || R <- Rooms].
+
+cleanup_on_startup() ->
+  %% Truncate room persistence file so to avoid inconsistencies
+  {ok, CWD} = file:get_cwd(),
+  FileName = CWD ++ ?PERSISTENCE_FILE,
+  file:open(FileName, [write]).
