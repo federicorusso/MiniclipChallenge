@@ -53,14 +53,6 @@ receive_message(Username, Payload, Sender) ->
 receive_message_internal(Username, Payload) ->
   gen_server:cast(whereis(list_to_atom("user_" ++ string:lowercase(Username))), {message_internal, Payload}).
 
-add_favourite_game(Username, GameName) ->
-  gen_server:cast(whereis(list_to_atom("user_" ++ string:lowercase(Username))), {add_game, GameName}).
-
-%%introduce_self(Username) ->
-%%  gen_server:call(whereis(list_to_atom("user_" ++ string:lowercase(Username))), {introduce}).
-%%
-%%list_favourite_games(Username) ->
-%%  io:format("Listing games for user ~s\r~n", [Username]),gen_server:cast(whereis(list_to_atom("user_" ++ Username)), list).
 
 %% Room APIs
 list_rooms(Username) ->
@@ -88,27 +80,6 @@ broadcast_to_users_in_room(RoomName, Username, Payload) ->
   {noreply, NewState :: #client_state{}, timeout() | hibernate} |
   {stop, Reason :: term(), Reply :: term(), NewState :: #client_state{}} |
   {stop, Reason :: term(), NewState :: #client_state{}}).
-
-handle_call({introduce}, _From, CurrentState) ->
-  io:format("Hi, I'm ~s! ~n", [CurrentState#client_state.name]),
-  {reply, "200 OK", CurrentState};
-%%handle_call({message, Payload, SenderUsername}, _From, CurrentState) ->
-%%  io:format("Received message from user ~s with payload: ~s ~n", [SenderUsername, Payload]),
-%%  Counter = CurrentState#client_state.received_message_count + 1,
-%%  {reply, "204 No Content", #client_state{name = CurrentState#client_state.name, socket=CurrentState#client_state.socket, received_message_count = Counter, favourite_games = CurrentState#client_state.favourite_games}};
-handle_call({list}, _From, CurrentState) ->
-  SelfUsername = CurrentState#client_state.name,
-  io:format("User ~s's favourite games are: ~p~n", [SelfUsername, CurrentState#client_state.favourite_games]),
-  {reply, "200 OK", CurrentState};
-
-handle_call(list, _From, CurrentState = #client_state{next_step = general}) ->
-  SelfUsername = CurrentState#client_state.name,
-  io:format("User ~s's favourite games are: ~p~n", [SelfUsername, CurrentState#client_state.favourite_games]),
-  {reply, "200 OK", CurrentState};
-
-%%handle_call(game_list, _From, CurrentState = #client_state{next_step = general}) ->
-%%  io:format("Requested game list~n"),
-%%  {reply, ok, CurrentState#client_state{next_step = game_list}};
 
 handle_call(_Request, From, CurrentState) ->
   %% Note to self: consider returning error instead - TODO: log entire request for debugging/analysis
@@ -220,15 +191,6 @@ handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = Use
       io:format("Requested message user~n"),
       send(Socket,"Enter recipient username: ", []),
       {noreply, CurrentState#client_state{next_step = message_user}};
-
-%%    "game_list" ->
-%%      io:format("Requested game list for user ~s~n", [Username]),
-%%      list_favourite_games(Username),
-%%      {noreply, CurrentState#client_state{next_step = general}};
-%%    "game_add" ->
-%%      io:format("Requested game add~n"),
-%%      send(Socket,"Enter game name to add to favourites: ", []),
-%%      {noreply, CurrentState#client_state{next_step = game_add}};
     _ ->
       io:format("Action ~s requested is not currently managed~n", [Action]),
       send(Socket, "Action ~s requested is not currently managed\r~nInteract with the app using either of the following: ~s", [Action, implemented_operations()]),
@@ -247,20 +209,13 @@ handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = _Us
     end;
 
 handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = Username, current_recipient = Recipient, next_step = message_payload}) ->
-  %% TODO: only line(Str) splits on \n and only returns first token.
-  %% Note to self: consider using "re"
+  %% TODO: Find a way to only trim the trailing \n - Note to self: consider using "re"
   %%Payload = line(Str),
   Payload = Str,
   io:format("Sending message '~s' to recipient ~s from sender ~s (untrimmed: '~s')~n", [Payload, Recipient, Username, Str]),
   send(Socket, "Message sent!\r~nInteract with the app using either of the following: ~s", [implemented_operations()]),
   receive_message(Recipient, Payload, Username),
   {noreply, CurrentState#client_state{next_step = general, current_recipient = ""}};
-
-handle_info(?SOCK(Str), CurrentState = #client_state{socket = _Socket, name = Username, next_step = game_add}) ->
-  GameName = string:lowercase(line(Str)),
-  io:format("Adding game ~s to favourites~n", [GameName]),
-  add_favourite_game(Username, GameName),
-  {noreply, CurrentState#client_state{next_step = general}};
 
 handle_info(?SOCK(Str), CurrentState = #client_state{socket = _Socket, name = Username, next_step = create_room}) ->
   RoomName = string:lowercase(line(Str)),
@@ -291,13 +246,6 @@ handle_info(?SOCK(Str), CurrentState = #client_state{socket = _Socket, name = Us
   io:format("Broadcasting '~s' to all users in room '~s'... ~n", [Payload, RoomName]),
   broadcast_to_users_in_room(RoomName, Username, Payload),
   {noreply, CurrentState#client_state{next_step = general, broadcast_room_name = ""}};
-
-%%handle_info(?SOCK(_Str), CurrentState = #client_state{socket = Socket, next_step = help}) ->
-%%
-%%  io:format("Displaying help information~n", []),
-%%  HelpInfo = "Welcome to the help section!\r~n- Enter 'room_list' to list existing rooms\r~n- Enter 'room_create' to create a new room\r~n- Enter 'room_enter' to join an existing room\r~n- Enter 'room_leave' to leave an existing room\r~n- Enter 'room_broadcast' to broadcast a message to all members of an existing room\r~n- Enter 'message_user' to send a message to an active user\r~n- Enter 'help' to display this guide again.",
-%%  send(Socket,"~s", [HelpInfo]),
-%%  {noreply, CurrentState#client_state{next_step = general}};
 
 handle_info(_Info, State = #client_state{}) ->
   {noreply, State}.
@@ -343,7 +291,6 @@ username_available(Username) ->
   whereis(list_to_atom("user_" ++ Username)) =:= undefined.
 
 implemented_operations() ->
-  %%Ops = ["room_list", "room_create", "room_enter", "room_leave", "room_broadcast", "message_user", "game_list", "game_add"],
   Ops = ["help", "room_list", "room_create", "room_enter", "room_leave", "room_broadcast", "message_user"],
   Res = lists:foldl(fun(X, Acc) -> X ++ ", " ++ Acc end, [], lists:reverse(Ops)),
   Len = string:length(Res),
