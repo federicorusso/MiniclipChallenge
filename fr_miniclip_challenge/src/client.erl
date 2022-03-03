@@ -109,7 +109,7 @@ handle_cast(list, CurrentState = #client_state{name = SelfUser, favourite_games 
     true ->
       send(Socket, "User ~s's favourite games are ~p~nInteract with the app using either of the following:  ~s", [SelfUser, Games, implemented_operations()]),
       {noreply, CurrentState#client_state{next_step = general}}
-      end;
+  end;
 
 handle_cast({add_game, GameName}, CurrentState = #client_state{socket = Socket, favourite_games = Games}) ->
   %% Favourite games can be added asynchronously
@@ -153,11 +153,9 @@ handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, next_step 
   if UsernameAvailable =:= true ->
     io:format("User with name ~s logged in~n", [Name]),
     register(list_to_atom("user_" ++ Name), self()),
-    HelpInfo = "Welcome! Here's what you can do:\r~n ~s~n ~s~n ~s~n ~s~n ~s~n ~s~n",
     send(Socket,"Welcome! Here's what you can do:\r~n ~s~n ~s~n ~s~n ~s~n ~s~n ~s~n",
       ["Enter 'room_list' to list existing rooms\r", "Enter 'room_create' to create a new room\r", "Enter 'room_enter' to join an existing room\r",
         "Enter 'room_leave' to leave an existing room\r", "Enter 'room_broadcast' to broadcast a message to all members of an existing room\r", "Enter 'message_user' to send a message to an active user"]),
-    %%send(CurrentState#client_state.socket, "Logged in! Interact with the app using either of the following:  ~s", [implemented_operations()]),
     {noreply, #client_state{name = Name, next_step = general, socket = CurrentState#client_state.socket}};
     true ->
       io:format("Username ~s already taken, please choose another one~n", [Name]),
@@ -206,7 +204,7 @@ handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = _Us
     true ->
       send(Socket, "User with name ~s is currently offline and cannot receive messages\r~nInteract with the app using either of the following: ~p", [Recipient, implemented_operations()]),
       {noreply, CurrentState#client_state{next_step = general}}
-    end;
+  end;
 
 handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, name = Username, current_recipient = Recipient, next_step = message_payload}) ->
   %% TODO: Find a way to only trim the trailing \n - Note to self: consider using "re"
@@ -291,7 +289,7 @@ username_available(Username) ->
   whereis(list_to_atom("user_" ++ Username)) =:= undefined.
 
 implemented_operations() ->
-  Ops = ["help", "room_list", "room_create", "room_enter", "room_leave", "room_broadcast", "message_user"],
+  Ops = ["room_list", "room_create", "room_enter", "room_leave", "room_broadcast", "message_user"],
   Res = lists:foldl(fun(X, Acc) -> X ++ ", " ++ Acc end, [], lists:reverse(Ops)),
   Len = string:length(Res),
   string:slice(Res, 0, Len-2).
