@@ -175,14 +175,18 @@ handle_cast(_Request, State = #client_state{}) ->
   {noreply, NewState :: #client_state{}} |
   {noreply, NewState :: #client_state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #client_state{}}).
-handle_info(?SOCK(Str), CurrentState = #client_state{next_step = login}) ->
+handle_info(?SOCK(Str), CurrentState = #client_state{socket = Socket, next_step = login}) ->
   Name = string:lowercase(line(Str)),
 
   UsernameAvailable = username_available(Name),
   if UsernameAvailable =:= true ->
     io:format("User with name ~s logged in~n", [Name]),
     register(list_to_atom("user_" ++ Name), self()),
-    send(CurrentState#client_state.socket, "Logged in! Interact with the app using either of the following:  ~s", [implemented_operations()]),
+    HelpInfo = "Welcome! Here's what you can do:\r~n ~s~n ~s~n ~s~n ~s~n ~s~n ~s~n",
+    send(Socket,"Welcome! Here's what you can do:\r~n ~s~n ~s~n ~s~n ~s~n ~s~n ~s~n",
+      ["Enter 'room_list' to list existing rooms\r", "Enter 'room_create' to create a new room\r", "Enter 'room_enter' to join an existing room\r",
+        "Enter 'room_leave' to leave an existing room\r", "Enter 'room_broadcast' to broadcast a message to all members of an existing room\r", "Enter 'message_user' to send a message to an active user"]),
+    %%send(CurrentState#client_state.socket, "Logged in! Interact with the app using either of the following:  ~s", [implemented_operations()]),
     {noreply, #client_state{name = Name, next_step = general, socket = CurrentState#client_state.socket}};
     true ->
       io:format("Username ~s already taken, please choose another one~n", [Name]),
@@ -288,6 +292,13 @@ handle_info(?SOCK(Str), CurrentState = #client_state{socket = _Socket, name = Us
   broadcast_to_users_in_room(RoomName, Username, Payload),
   {noreply, CurrentState#client_state{next_step = general, broadcast_room_name = ""}};
 
+%%handle_info(?SOCK(_Str), CurrentState = #client_state{socket = Socket, next_step = help}) ->
+%%
+%%  io:format("Displaying help information~n", []),
+%%  HelpInfo = "Welcome to the help section!\r~n- Enter 'room_list' to list existing rooms\r~n- Enter 'room_create' to create a new room\r~n- Enter 'room_enter' to join an existing room\r~n- Enter 'room_leave' to leave an existing room\r~n- Enter 'room_broadcast' to broadcast a message to all members of an existing room\r~n- Enter 'message_user' to send a message to an active user\r~n- Enter 'help' to display this guide again.",
+%%  send(Socket,"~s", [HelpInfo]),
+%%  {noreply, CurrentState#client_state{next_step = general}};
+
 handle_info(_Info, State = #client_state{}) ->
   {noreply, State}.
 
@@ -333,7 +344,7 @@ username_available(Username) ->
 
 implemented_operations() ->
   %%Ops = ["room_list", "room_create", "room_enter", "room_leave", "room_broadcast", "message_user", "game_list", "game_add"],
-  Ops = ["room_list", "room_create", "room_enter", "room_leave", "room_broadcast", "message_user"],
+  Ops = ["help", "room_list", "room_create", "room_enter", "room_leave", "room_broadcast", "message_user"],
   Res = lists:foldl(fun(X, Acc) -> X ++ ", " ++ Acc end, [], lists:reverse(Ops)),
   Len = string:length(Res),
   string:slice(Res, 0, Len-2).
